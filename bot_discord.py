@@ -1,23 +1,30 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 from keep_alive import keep_alive
 
 import discord
 from discord.ext import commands
 import random
 import re
+import os
+import unicodedata
 
 # ==============================
 # CONFIGURAÇÕES
 # ==============================
-import os
 TOKEN = os.getenv("DISCORD_TOKEN")
 PREFIXO = "!"
-intents = discord.Intents.all()
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 intents.presences = True
 bot = commands.Bot(command_prefix=PREFIXO, intents=intents)
+
+# ==============================
+# FUNÇÃO AUXILIAR: NORMALIZAR TEXTO
+# ==============================
+def normalizar(texto):
+    """Remove acentos e converte pra minúsculo"""
+    return unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode("utf-8").lower()
 
 # ==============================
 # EVENTOS
@@ -26,7 +33,6 @@ bot = commands.Bot(command_prefix=PREFIXO, intents=intents)
 async def on_ready():
     print(f"✅ Bot {bot.user.name} está online!")
     await bot.change_presence(activity=discord.Game(name="organizando grupos 💪"))
-
 
 # ==============================
 # COMANDO DE AJUDA
@@ -40,11 +46,10 @@ async def ajuda(ctx):
         "`!div Cargo p=4` → Cria grupos de 4 pessoas.\n"
         "`!div Cargo g=5 p=3` → Cria 5 grupos de 3 pessoas.\n"
         "`!div Cargo al` → Divide em ordem aleatória.\n"
-        "`!div Cargo g=5 al dm` → Cria 5 grupos aleatórios e envia por DM.\n\n"
+        "`!div Cargo g=5 al dm` → Cria 5 grupos aleatórios e envia o resultado por **DM apenas para você**.\n\n"
         "🧠 Combine as variáveis conforme desejar!"
     )
     await ctx.send(ajuda_msg)
-
 
 # ==============================
 # FUNÇÃO PRINCIPAL: DIVISÃO DE GRUPOS
@@ -68,11 +73,17 @@ async def dividir(ctx, *args):
         if cargo_id:
             cargo_obj = ctx.guild.get_role(int(cargo_id))
         elif cargo_nome:
-            cargo_obj = discord.utils.find(lambda r: r.name.lower() == cargo_nome.lower(), ctx.guild.roles)
+            cargo_obj = discord.utils.find(
+                lambda r: normalizar(r.name) == normalizar(cargo_nome),
+                ctx.guild.roles
+            )
 
-    # Se ainda não encontrou, tenta pelo texto inteiro
+    # Se ainda não encontrou, tenta procurar de forma flexível
     if not cargo_obj:
-        cargo_obj = discord.utils.find(lambda r: r.name.lower() in args_texto.lower(), ctx.guild.roles)
+        cargo_obj = discord.utils.find(
+            lambda r: normalizar(r.name) in normalizar(args_texto),
+            ctx.guild.roles
+        )
 
     if not cargo_obj:
         await ctx.send("❌ Cargo não encontrado! Tente usar o nome exato ou mencionar com @Cargo.")
@@ -80,18 +91,20 @@ async def dividir(ctx, *args):
 
     membros = [m for m in cargo_obj.members if not m.bot]
     if not membros:
-        await ctx.send(f"⚠️ Nenhum membro encontrado no cargo {cargo_obj.mention}.")
+        await ctx.send(f"⚠️ Nenhum membro encontrado no cargo **{cargo_obj.name}**.")
         return
 
+    # Parâmetros opcionais
     g_match = re.search(r"g=(\d+)", args_texto)
     p_match = re.search(r"p=(\d+)", args_texto)
     al = "al" in args_texto
     dm = "dm" in args_texto
 
-    grupos = []
     if al:
         random.shuffle(membros)
 
+    # Criar grupos
+    grupos = []
     if g_match:
         num_grupos = int(g_match.group(1))
         grupos = [[] for _ in range(num_grupos)]
@@ -104,20 +117,29 @@ async def dividir(ctx, *args):
         tam = len(membros) // 2 or 1
         grupos = [membros[i:i + tam] for i in range(0, len(membros), tam)]
 
-    msg_final = f"✅ **Grupos criados para {cargo_obj.mention}:**\n\n"
-    for i, g in enumerate(grupos, start=1):
-        nomes = ", ".join(m.display_name for m in g)
-        msg_final += f"**Grupo {i}:** {nomes}\n"
+    # Montar mensagem final
+    resultado = ""
+    for i, grupo in enumerate(grupos, start=1):
+        nomes = ", ".join(m.display_name for m in grupo)
+        resultado += f"**Grupo {i}:** {nomes}\n"
 
-        if dm:
-            for m in g:
-                try:
-                    await m.send(f"📢 Você está no **Grupo {i}** com: {', '.join(x.name for x in g if x != m)}")
-                except:
-                    pass
+    embed = discord.Embed(
+        title="✅ Grupos criados!",
+        description=resultado,
+        color=discord.Color.green()
+    )
+    embed.set_footer(text=f"Cargo: {cargo_obj.name}")
 
-    await ctx.send(msg_final)
+    await ctx.send(embed=embed)
 
+    # Enviar DM somente para quem usou o comando
+    if dm:
+        try:
+            await ctx.author.send(
+                f"✅ Seus grupos foram criados com sucesso!\n\n{resultado}"
+            )
+        except:
+            await ctx.send("⚠️ Não consegui enviar DM (você pode estar com DMs fechadas).")
 
 # ==============================
 # EXECUÇÃO

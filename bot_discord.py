@@ -1,4 +1,6 @@
 ﻿# -*- coding: utf-8 -*-
+from keep_alive import keep_alive
+
 import discord
 from discord.ext import commands
 import random
@@ -120,4 +122,5 @@ async def dividir(ctx, *args):
 # ==============================
 # EXECUÇÃO
 # ==============================
+keep_alive()
 bot.run(TOKEN)

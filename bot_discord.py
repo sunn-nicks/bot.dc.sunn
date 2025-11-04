@@ -23,8 +23,12 @@ bot = commands.Bot(command_prefix=PREFIXO, intents=intents)
 # FUNÇÃO AUXILIAR: NORMALIZAR TEXTO
 # ==============================
 def normalizar(texto):
-    """Remove acentos e converte pra minúsculo"""
-    return unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode("utf-8").lower()
+    """Remove acentos, emojis e converte pra minúsculo"""
+    texto = ''.join(
+        c for c in unicodedata.normalize("NFKD", texto)
+        if not unicodedata.combining(c)
+    )
+    return texto.encode("ASCII", "ignore").decode("utf-8").lower()
 
 # ==============================
 # EVENTOS
@@ -52,7 +56,7 @@ async def ajuda(ctx):
     await ctx.send(ajuda_msg)
 
 # ==============================
-# FUNÇÃO PRINCIPAL: DIVISÃO DE GRUPOS
+# COMANDO PRINCIPAL: DIVISÃO DE GRUPOS
 # ==============================
 @bot.command(name="div")
 async def dividir(ctx, *args):
@@ -78,7 +82,7 @@ async def dividir(ctx, *args):
                 ctx.guild.roles
             )
 
-    # Se ainda não encontrou, tenta procurar de forma flexível
+    # Se ainda não encontrou, tenta procurar de forma mais ampla
     if not cargo_obj:
         cargo_obj = discord.utils.find(
             lambda r: normalizar(r.name) in normalizar(args_texto),
@@ -103,9 +107,16 @@ async def dividir(ctx, *args):
     if al:
         random.shuffle(membros)
 
-    # Criar grupos
+    # ==============================
+    # LÓGICA AJUSTADA: g= e p= combinados
+    # ==============================
     grupos = []
-    if g_match:
+
+    if g_match and p_match:
+        num_grupos = int(g_match.group(1))
+        tam = int(p_match.group(1))
+        grupos = [membros[i * tam:(i + 1) * tam] for i in range(num_grupos)]
+    elif g_match:
         num_grupos = int(g_match.group(1))
         grupos = [[] for _ in range(num_grupos)]
         for i, m in enumerate(membros):
@@ -117,7 +128,12 @@ async def dividir(ctx, *args):
         tam = len(membros) // 2 or 1
         grupos = [membros[i:i + tam] for i in range(0, len(membros), tam)]
 
-    # Montar mensagem final
+    # Remove grupos vazios
+    grupos = [g for g in grupos if g]
+
+    # ==============================
+    # MONTAR RESPOSTA
+    # ==============================
     resultado = ""
     for i, grupo in enumerate(grupos, start=1):
         nomes = ", ".join(m.display_name for m in grupo)
@@ -125,7 +141,7 @@ async def dividir(ctx, *args):
 
     embed = discord.Embed(
         title="✅ Grupos criados!",
-        description=resultado,
+        description=resultado or "Nenhum grupo criado.",
         color=discord.Color.green()
     )
     embed.set_footer(text=f"Cargo: {cargo_obj.name}")
